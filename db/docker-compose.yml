@@ -1,0 +1,55 @@
+# PostGIS lokal untuk pengembangan. Kredensial dibaca dari db/.env (dibuat oleh setup.sh).
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    platform: linux/amd64   # penyederhanaan: image resmi belum ada arm64; jalan via Rosetta
+    container_name: gambut_db
+    environment:
+      POSTGRES_DB: gambut
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gambut_dev}
+    command: >
+      postgres -c shared_buffers=1GB -c work_mem=64MB -c maintenance_work_mem=1GB
+               -c max_wal_size=4GB -c effective_cache_size=4GB -c jit=off
+    shm_size: 1gb
+    ports: ["5433:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    restart: unless-stopped
+
+  api:            # pygeoapi: OGC API Features/Tiles/Processes
+    image: geopython/pygeoapi:0.24.0   # rilis stabil yang diuji; produksi: pin ke digest
+    container_name: gambut_api
+    depends_on: [db]
+    environment:
+      PYGEOAPI_CONFIG: /pygeoapi/local.config.yml
+      PYGEOAPI_OPENAPI: /tmp/local.openapi.yml
+      PYGEOAPI_URL: ${PYGEOAPI_URL:-http://localhost:8080}
+      PYTHONPATH: /plugins
+      WSGI_WORKERS: ${WSGI_WORKERS:-4}
+      PG_HOST: db
+      PG_PORT: "5432"
+      PG_DB: gambut
+      PW_OGC_READER: ${PW_OGC_READER}
+      PW_OGC_WRITER: ${PW_OGC_WRITER}
+    volumes:
+      - ../api/pygeoapi-config.yml:/pygeoapi/local.config.yml:ro
+      - ../api/gambut_processes.py:/plugins/gambut_processes.py:ro
+    restart: unless-stopped
+
+  proxy:          # Caddy: GET publik, tulis wajib Basic Auth, HTTPS otomatis bila SITE_ADDRESS = domain
+    image: caddy:2
+    container_name: gambut_proxy
+    depends_on: [api]
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      API_ADMIN_USER: ${API_ADMIN_USER}
+      API_ADMIN_HASH: ${API_ADMIN_HASH}
+    ports: ["8080:80", "8443:443"]
+    volumes:
+      - ../api/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:

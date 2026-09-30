@@ -1,0 +1,22 @@
+# Reverse proxy di depan pygeoapi:
+#  - GET/HEAD/OPTIONS publik (baca terbuka)
+#  - eksekusi proses baca (dashboard, validasi, saran lokasi) publik
+#  - semua operasi tulis lain (POST/PUT/PATCH/DELETE) wajib Basic Auth
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+	route {
+		@proses_baca {
+			method POST
+			path_regexp ^/processes/(ringkasan-dashboard|validasi-khg|saran-lokasi-pompa)/execution$
+		}
+		reverse_proxy @proses_baca api:80
+
+		@tulis not method GET HEAD OPTIONS
+		basic_auth @tulis {
+			{$API_ADMIN_USER} {$API_ADMIN_HASH}
+		}
+		reverse_proxy api:80 {
+			header_up X-Forwarded-User {http.auth.user.id}
+		}
+	}
+}

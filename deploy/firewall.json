@@ -1,0 +1,6 @@
+[
+  {"direction": "in", "protocol": "tcp", "port": "22",  "source_ips": ["0.0.0.0/0", "::/0"], "description": "SSH"},
+  {"direction": "in", "protocol": "tcp", "port": "80",  "source_ips": ["0.0.0.0/0", "::/0"], "description": "HTTP (redirect + ACME)"},
+  {"direction": "in", "protocol": "tcp", "port": "443", "source_ips": ["0.0.0.0/0", "::/0"], "description": "HTTPS OGC API"},
+  {"direction": "in", "protocol": "icmp", "source_ips": ["0.0.0.0/0", "::/0"], "description": "ping"}
+]

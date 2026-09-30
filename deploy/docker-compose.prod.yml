@@ -1,0 +1,15 @@
+# Override produksi (dipakai bersama db/docker-compose.yml lewat COMPOSE_FILE di .env server).
+services:
+  db:
+    platform: linux/amd64          # VM x86: native, tanpa emulasi
+    ports: !override ["127.0.0.1:5432:5432"]   # hanya localhost -> editor QGIS lewat SSH tunnel
+    command: >        # nilai memori diisi deploy.sh sesuai RAM server (PG_* di .env)
+      postgres -c shared_buffers=${PG_SHARED_BUFFERS:-2GB} -c effective_cache_size=${PG_CACHE:-6GB}
+               -c work_mem=${PG_WORK_MEM:-32MB} -c maintenance_work_mem=${PG_MAINT_MEM:-512MB}
+               -c max_wal_size=2GB -c jit=off
+  api:
+    environment:
+      PYGEOAPI_URL: https://${SITE_ADDRESS}
+      WSGI_WORKERS: ${WSGI_WORKERS:-4}
+  proxy:
+    ports: !override ["80:80", "443:443"]

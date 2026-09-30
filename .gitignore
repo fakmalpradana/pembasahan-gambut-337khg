@@ -1,0 +1,44 @@
+# --- rahasia: JANGAN pernah di-commit ---
+.env
+.env.*
+**/.env
+**/.env.*
+deploy/.state
+docs/KREDENSIAL*.md
+
+# --- data sumber & hasil olahan (besar, tidak disertakan; lihat README "Data sumber") ---
+Sekat Kanal BRGM/
+Data Spasial Pemulihan Ekosistem Gambut*/
+__ Burnscare Areas*/
+__ Data Hotspot*/
+output/
+docs/assets/
+*.png
+# semua format data, di folder mana pun
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.CPG
+*.sbn
+*.sbx
+*.shp.xml
+*.gdb/
+*.gpkg
+*.gpkg-*
+*.geojson
+*.csv
+*.xlsx
+*.tif
+*.tiff
+*.zip
+*.dump
+*.sql.gz
+*.pbf
+*.mvt
+
+# --- lain-lain ---
+.DS_Store
+__pycache__/
+*.pyc

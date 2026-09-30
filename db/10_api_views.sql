@@ -1,0 +1,130 @@
+-- Schema api: view baca-saja yang dipublikasikan lewat OGC API (pygeoapi).
+-- Kolom FK diganti nama yang terbaca manusia. Koleksi yang bisa diedit memakai tabel peta.* langsung.
+DROP SCHEMA IF EXISTS api CASCADE;
+CREATE SCHEMA api;
+
+-- statistik per KHG (mahal dihitung) -> materialized view, di-refresh berkala
+CREATE MATERIALIZED VIEW api.khg_statistik AS
+SELECT k.id AS khg_id,
+       (SELECT count(*) FROM peta.hotspot h WHERE h.khg_id = k.id
+           AND h.waktu >= (SELECT max(waktu) FROM peta.hotspot) - interval '30 days') AS hotspot_30h,
+       (SELECT count(*) FROM peta.hotspot h WHERE h.khg_id = k.id
+           AND h.waktu >= date_trunc('year', (SELECT max(waktu) FROM peta.hotspot))) AS hotspot_tahun_ini,
+       (SELECT round(sum(panjang_m) / 1000, 1) FROM peta.kanal c WHERE c.khg_id = k.id) AS kanal_km,
+       (SELECT count(*) FROM peta.sekat s WHERE s.khg_id = k.id AND s.status = 'rencana') AS sekat_rencana,
+       (SELECT count(*) FROM peta.sekat s WHERE s.khg_id = k.id AND s.status = 'existing') AS sekat_existing,
+       (SELECT count(*) FROM peta.pintu_air p WHERE p.khg_id = k.id) AS pintu_air,
+       (SELECT round(sum(luas_ha) FILTER (WHERE tahun_terbakar IS NOT NULL)
+                     / nullif(sum(luas_ha), 0), 3)
+          FROM analisis.unit_nasional u WHERE u.khg_id = k.id) AS porsi_pernah_terbakar,
+       (SELECT round(sum(luas_ha) FILTER (WHERE fungsi_eg_ketebalan LIKE '%>= 3%')
+                     / nullif(sum(luas_ha), 0), 3)
+          FROM analisis.unit_nasional u WHERE u.khg_id = k.id) AS porsi_gambut_dalam
+  FROM ref.khg k;
+CREATE UNIQUE INDEX ON api.khg_statistik (khg_id);
+
+-- KHG: batas + status alur + statistik + skor prioritas (layar Dashboard & Daftar KHG)
+-- penyederhanaan: skor_prioritas = 100 x (0.4 porsi terbakar + 0.3 porsi gambut >= 3 m + 0.3 hotspot 30h relatif)
+CREATE VIEW api.khg AS
+SELECT k.id, k.kode, k.nama, p.nama AS provinsi, p.singkatan AS provinsi_singkat, k.target_2026, k.luas_ha,
+       st.nomor AS versi, st.status, st.diajukan_oleh, st.diajukan_at, st.reviewer, st.diputuskan_at,
+       s.hotspot_30h, s.hotspot_tahun_ini, s.kanal_km, s.sekat_rencana, s.sekat_existing, s.pintu_air,
+       (SELECT count(*) FROM peta.pompa x WHERE x.khg_id = k.id) AS pompa,
+       (SELECT round(sum(panjang_m) / 1000, 1) FROM peta.kanal c WHERE c.khg_id = k.id AND c.status = 'aktif') AS kanal_aktif_km,
+       s.porsi_pernah_terbakar, s.porsi_gambut_dalam,
+       round(100 * (0.4 * coalesce(s.porsi_pernah_terbakar, 0) + 0.3 * coalesce(s.porsi_gambut_dalam, 0)
+                  + 0.3 * coalesce(s.hotspot_30h::numeric / nullif(max(s.hotspot_30h) OVER (), 0), 0)))::int AS skor_prioritas,
+       k.geom
+  FROM ref.khg k
+  JOIN ref.provinsi p ON p.id = k.provinsi_utama_id
+  LEFT JOIN alur.v_khg_status st ON st.khg_id = k.id
+  LEFT JOIN api.khg_statistik s ON s.khg_id = k.id;
+
+CREATE VIEW api.desa AS
+SELECT d.id, d.kode_bps, d.nama AS desa, kc.nama AS kecamatan, kb.nama AS kabupaten, p.nama AS provinsi,
+       d.target_pemulihan_2026, d.geom
+  FROM ref.desa d JOIN ref.kecamatan kc ON kc.id = d.kecamatan_id
+  JOIN ref.kabupaten kb ON kb.id = kc.kabupaten_id JOIN ref.provinsi p ON p.id = kb.provinsi_id
+ WHERE d.geom IS NOT NULL;
+
+CREATE VIEW api.sekat AS
+SELECT s.id, s.kode, s.status, s.sumber, j.label AS jenis_kanal, s.kanal_id, s.elevasi_kontur_m,
+       k.nama AS khg, d.nama AS desa, pr.nama AS perusahaan,
+       b.kodefikasi, b.tipe, b.jenis_bangunan, b.bahan, b.tahun_bangun, b.pelaksana, b.anggaran,
+       c.penutupan_lahan_2022, c.kerusakan_eg_2024, c.tebal_gambut_kelas, c.tahun_terbakar,
+       c.prioritas_intervensi, c.program_dmpg, s.qc_flag, s.updated_at, s.updated_via, s.geom
+  FROM peta.sekat s
+  LEFT JOIN ref.jenis_kanal j ON j.kode = s.jenis_kanal
+  LEFT JOIN ref.khg k ON k.id = s.khg_id
+  LEFT JOIN peta.sekat_konteks c ON c.sekat_id = s.id
+  LEFT JOIN peta.sekat_bangunan b ON b.sekat_id = s.id
+  LEFT JOIN ref.desa d ON d.id = c.desa_id
+  LEFT JOIN ref.perusahaan pr ON pr.id = coalesce(c.perusahaan_id, b.perusahaan_id);
+
+CREATE VIEW api.hotspot AS
+SELECT h.id, h.waktu, h.satelit, h.instrumen, h.kepercayaan, h.frp_mw, h.provinsi, h.kabupaten,
+       h.desa, k.nama AS khg, h.format_sumber, h.geom
+  FROM peta.hotspot h LEFT JOIN ref.khg k ON k.id = h.khg_id;
+
+CREATE VIEW api.areal_terbakar AS
+SELECT a.id, array_to_string(a.tahun_terbakar, ',') AS tahun_terbakar, a.frekuensi,
+       (SELECT max(t) FROM unnest(a.tahun_terbakar) t) AS tahun_terakhir, k.nama AS khg, a.geom
+  FROM peta.areal_terbakar a LEFT JOIN ref.khg k ON k.id = a.khg_id;
+
+CREATE VIEW api.konsesi AS
+SELECT c.id, pr.nama AS perusahaan, c.jenis, c.sumber, c.geom
+  FROM peta.konsesi c LEFT JOIN ref.perusahaan pr ON pr.id = c.perusahaan_id;
+
+CREATE VIEW api.ketebalan_gambut AS
+SELECT t.id, k.nama AS khg, t.kelas, t.tebal_min_m, t.tebal_max_m, t.geom
+  FROM peta.ketebalan_gambut t LEFT JOIN ref.khg k ON k.id = t.khg_id;
+
+CREATE VIEW api.sumur_bor AS SELECT * FROM peta.v_sumur_bor;
+
+CREATE VIEW api.kanal AS
+SELECT c.id, c.kode, j.label AS jenis_kanal, coalesce(sk.label, 'Belum disurvei') AS status,
+       c.panjang_m, k.nama AS khg, c.sumber, c.geom
+  FROM peta.kanal c
+  LEFT JOIN ref.jenis_kanal j ON j.kode = c.jenis_kanal
+  LEFT JOIN ref.status_kanal sk ON sk.kode = c.status
+  LEFT JOIN ref.khg k ON k.id = c.khg_id;
+
+-- unit analisis (besar): atribut lengkap untuk analisis/QGIS
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['unit_target_2026', 'unit_nasional'] LOOP
+    EXECUTE format($f$
+      CREATE VIEW api.%1$I AS
+      SELECT u.id, k.nama AS khg, d.nama AS desa, pr.nama AS perusahaan, pr.izin_usaha,
+             j.label AS jenis_kanal, u.nama_kawasan_konservasi, u.fungsi_kawasan, u.penutupan_lahan_2022,
+             u.kerusakan_eg_2024, u.fungsi_eg_ketebalan, u.tebal_gambut_kelas, u.kedalaman_gambut_bbsdlp,
+             u.kematangan_gambut, u.landform, u.lahan_gambut, u.buffer,
+             array_to_string(u.tahun_terbakar, ',') AS tahun_terbakar, u.frekuensi_terbakar,
+             u.terdampak_kanal, u.program_dmpg, u.prioritas_intervensi, u.luas_ha, u.geom
+        FROM analisis.%1$I u
+        LEFT JOIN ref.khg k ON k.id = u.khg_id
+        LEFT JOIN ref.desa d ON d.id = u.desa_id
+        LEFT JOIN ref.perusahaan pr ON pr.id = u.perusahaan_id
+        LEFT JOIN ref.jenis_kanal j ON j.kode = u.jenis_kanal$f$, t);
+  END LOOP;
+END $$;
+
+CREATE VIEW api.kontur AS
+SELECT c.id, c.elevasi_m, k.nama AS khg, c.geom FROM analisis.kontur c LEFT JOIN ref.khg k ON k.id = c.khg_id;
+CREATE VIEW api.kontur_lidar AS
+SELECT c.id, c.elevasi_m, k.nama AS khg, c.geom FROM analisis.kontur_lidar c LEFT JOIN ref.khg k ON k.id = c.khg_id;
+
+-- refresh statistik oleh role non-owner (dipanggil proses OGC 'refresh-statistik' / cron)
+CREATE FUNCTION api.refresh_statistik() RETURNS timestamptz
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  REFRESH MATERIALIZED VIEW CONCURRENTLY api.khg_statistik;
+  RETURN now();
+END $$;
+REVOKE EXECUTE ON FUNCTION api.refresh_statistik() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION api.refresh_statistik() TO gambut_edit;
+GRANT EXECUTE ON FUNCTION alur.ajukan_review(bigint), alur.putuskan(bigint, text, text) TO ogc_writer;
+
+GRANT USAGE ON SCHEMA api TO gambut_baca;
+GRANT SELECT ON ALL TABLES IN SCHEMA api TO gambut_baca;

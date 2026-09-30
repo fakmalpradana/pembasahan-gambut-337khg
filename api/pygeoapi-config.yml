@@ -1,0 +1,334 @@
+# pygeoapi — OGC API Features (+ Part 4 CRUD), Tiles (MVT), Processes
+# Kredensial dibaca dari environment (lihat db/.env). Semua koordinat CRS84 (lon, lat).
+server:
+  bind: {host: 0.0.0.0, port: 80}
+  url: ${PYGEOAPI_URL}
+  mimetype: application/json; charset=UTF-8
+  encoding: utf-8
+  gzip: true
+  languages: [id, en-US]
+  cors: true
+  pretty_print: false
+  limits:
+    default_items: 100
+    max_items: 5000
+    on_exceed: throttle
+  map:
+    url: https://tile.openstreetmap.org/{z}/{x}/{y}.png
+    attribution: '&copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+  manager:
+    name: TinyDB
+    connection: /tmp/pygeoapi-process-manager.db
+    output_dir: /tmp/
+
+logging:
+  level: ERROR
+
+metadata:
+  identification:
+    title:
+      id: Pembasahan Gambut 337 KHG — OGC API
+      en: Peat Rewetting 337 KHG — OGC API
+    description:
+      id: Layanan OGC API untuk data perencanaan pembasahan gambut (sekat kanal, kanal, pompa, hotspot, areal terbakar, unit analisis PPEG 2026).
+      en: OGC API for peatland rewetting planning data.
+    keywords: [gambut, KHG, sekat kanal, PPEG, BRGM, OGC API]
+    keywords_type: theme
+    terms_of_service: https://creativecommons.org/licenses/by/4.0/
+    url: ${PYGEOAPI_URL}
+  license:
+    name: CC-BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+  provider:
+    name: Dit. PPEG — KLH/BPLH
+    url: ${PYGEOAPI_URL}
+  contact:
+    name: Analis GIS Dit. PPEG
+    position: Analis GIS
+    address: Jakarta
+    city: Jakarta
+    stateorprovince: DKI Jakarta
+    postalcode: '10000'
+    country: Indonesia
+    email: gis@example.go.id
+    url: ${PYGEOAPI_URL}
+    role: pointOfContact
+
+# ---------------------------------------------------------------- anchor koneksi
+x-db-baca: &db_baca
+  host: ${PG_HOST}
+  port: ${PG_PORT}
+  dbname: ${PG_DB}
+  user: ogc_reader
+  password: ${PW_OGC_READER}
+  search_path: [api, public]
+x-db-edit: &db_edit
+  host: ${PG_HOST}
+  port: ${PG_PORT}
+  dbname: ${PG_DB}
+  user: ogc_writer
+  password: ${PW_OGC_WRITER}
+  search_path: [peta, public]
+x-ext-indonesia: &ext
+  spatial:
+    bbox: [94.9, -11.1, 141.1, 6.1]
+    crs: http://www.opengis.net/def/crs/OGC/1.3/CRS84
+x-crs: &crs
+  - http://www.opengis.net/def/crs/OGC/1.3/CRS84
+  - http://www.opengis.net/def/crs/EPSG/0/4326
+  - http://www.opengis.net/def/crs/EPSG/0/3857
+x-mvt: &mvt
+  type: tile
+  name: MVT-postgresql
+  format: {name: pbf, mimetype: application/vnd.mapbox-vector-tile}
+x-link: &link
+  - type: text/html
+    rel: canonical
+    title: Dokumentasi API
+    href: ${PYGEOAPI_URL}/openapi?f=html
+
+resources:
+  # ============================================================ baca-saja (schema api)
+  khg:
+    type: collection
+    title: Kesatuan Hidrologis Gambut (KHG)
+    description: Batas 866 KHG (dissolve unit analisis PPEG) + status alur kerja, statistik, skor prioritas.
+    keywords: [KHG, batas, status]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_baca, table: khg, id_field: id, geom_field: geom, crs: *crs}
+      - <<: *mvt
+        data: *db_baca
+        table: khg
+        id_field: id
+        geom_field: geom
+        options: {zoom: {min: 0, max: 14}}
+  desa:
+    type: collection
+    title: Desa target pemulihan ekosistem gambut 2026
+    description: 2004 desa target (AOI) dengan nama wilayah administrasi.
+    keywords: [desa, target]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_baca, table: desa, id_field: id, geom_field: geom, crs: *crs}
+  sekat:
+    type: collection
+    title: Sekat kanal (rencana & existing)
+    description: Sekat rencana BRGM (kontur x kanal) + sekat existing dari infrastruktur hidrologis, lengkap dengan konteks overlay. Untuk edit gunakan koleksi sekat-edit.
+    keywords: [sekat kanal, infrastruktur]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_baca, table: sekat, id_field: id, geom_field: geom, crs: *crs}
+      - <<: *mvt
+        data: *db_baca
+        table: sekat
+        id_field: id
+        geom_field: geom
+        options: {zoom: {min: 10, max: 18}}
+  hotspot:
+    type: collection
+    title: Hotspot Jan–Sep 2026
+    description: Titik panas MODIS & VIIRS (gabungan FIRMS dan SiPongi). Filter waktu dengan parameter datetime.
+    keywords: [hotspot, karhutla]
+    links: *link
+    extents:
+      <<: *ext
+      temporal: {begin: 2026-01-01T00:00:00Z, end: 2026-09-15T23:59:59Z}
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_baca, table: hotspot, id_field: id, geom_field: geom, time_field: waktu, crs: *crs}
+      - <<: *mvt
+        data: *db_baca
+        table: hotspot
+        id_field: id
+        geom_field: geom
+        options: {zoom: {min: 5, max: 16}}
+  areal-terbakar:
+    type: collection
+    title: Areal terbakar 2015–2026
+    description: Overlay areal terbakar; tahun_terbakar = daftar tahun, frekuensi = jumlah kejadian.
+    keywords: [burn scar, karhutla]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_baca, table: areal_terbakar, id_field: id, geom_field: geom, crs: *crs}
+      - <<: *mvt
+        data: *db_baca
+        table: areal_terbakar
+        id_field: id
+        geom_field: geom
+        options: {zoom: {min: 9, max: 16}}
+  konsesi:
+    type: collection
+    title: Areal konsesi / perizinan
+    description: Dissolve unit analisis per perusahaan (PBPH, perkebunan, dll).
+    keywords: [konsesi, PBPH, HGU]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_baca, table: konsesi, id_field: id, geom_field: geom, crs: *crs}
+  ketebalan-gambut:
+    type: collection
+    title: Ketebalan gambut
+    description: Kelas tebal gambut per KHG (dissolve unit analisis).
+    keywords: [gambut, ketebalan]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_baca, table: ketebalan_gambut, id_field: id, geom_field: geom, crs: *crs}
+  unit-target-2026:
+    type: collection
+    title: Unit analisis tematik — 2004 desa target 2026
+    description: 789 ribu poligon integrasi tematik PPEG (KHG x desa x konsesi x kawasan x gambut x terbakar).
+    keywords: [analisis, PPEG]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_baca, table: unit_target_2026, id_field: id, geom_field: geom, crs: *crs}
+      - <<: *mvt
+        data: *db_baca
+        table: unit_target_2026
+        id_field: id
+        geom_field: geom
+        options: {zoom: {min: 11, max: 16}}
+  unit-nasional:
+    type: collection
+    title: Unit analisis tematik — nasional
+    description: 989 ribu poligon integrasi tematik PPEG seluruh Indonesia (866 KHG).
+    keywords: [analisis, PPEG, nasional]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_baca, table: unit_nasional, id_field: id, geom_field: geom, crs: *crs}
+      - <<: *mvt
+        data: *db_baca
+        table: unit_nasional
+        id_field: id
+        geom_field: geom
+        options: {zoom: {min: 11, max: 16}}
+  kontur:
+    type: collection
+    title: Kontur 108 KHG target BRGM
+    keywords: [kontur, elevasi]
+    description: Garis kontur WorldDEM pada 108 KHG target BRGM.
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_baca, table: kontur, id_field: id, geom_field: geom, crs: *crs}
+      - <<: *mvt
+        data: *db_baca
+        table: kontur
+        id_field: id
+        geom_field: geom
+        options: {zoom: {min: 11, max: 17}}
+  kontur-lidar:
+    type: collection
+    title: Kontur LiDAR 50 cm (Riau, Jambi, Sumsel)
+    description: Kontur interval 50 cm dari LiDAR.
+    keywords: [kontur, LiDAR]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_baca, table: kontur_lidar, id_field: id, geom_field: geom, crs: *crs}
+
+  # ============================================================ bisa diedit (Part 4: POST/PUT/PATCH/DELETE)
+  sekat-edit:
+    type: collection
+    title: Sekat kanal (edit)
+    description: Tabel sekat untuk CRUD. kode & khg_id terisi otomatis bila kosong; perubahan tercatat di log audit (via=api).
+    keywords: [sekat kanal, edit]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_edit, table: sekat, id_field: id, geom_field: geom, editable: true, crs: *crs}
+  kanal:
+    type: collection
+    title: Kanal (OSM 2025, bisa diedit)
+    description: 657 ribu segmen kanal seamless OSM. Isi atribut status (aktif / tidak_aktif / tersumbat) hasil survei.
+    keywords: [kanal, edit]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_edit, table: kanal, id_field: id, geom_field: geom, editable: true, crs: *crs}
+      - <<: *mvt
+        data: *db_baca
+        table: kanal
+        id_field: id
+        geom_field: geom
+        options: {zoom: {min: 9, max: 17}}
+  pompa:
+    type: collection
+    title: Pompa air (rencana)
+    description: Titik pompa rencana dengan skor kesesuaian lokasi.
+    keywords: [pompa, edit]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_edit, table: pompa, id_field: id, geom_field: geom, editable: true, crs: *crs}
+  pintu-air:
+    type: collection
+    title: Pintu air
+    keywords: [pintu air, edit]
+    description: Pintu air dari infrastruktur hidrologis PPEG BRGM.
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_edit, table: pintu_air, id_field: id, geom_field: geom, editable: true, crs: *crs}
+  sungai:
+    type: collection
+    title: Sungai (sumber air)
+    description: Garis sungai sumber air untuk pompa (belum ada data awal).
+    keywords: [sungai, edit]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_edit, table: sungai, id_field: id, geom_field: geom, editable: true, crs: *crs}
+  sumur-bor:
+    type: collection
+    title: Sumur bor
+    description: Sumur bor (disinkron dari sistem Sumur Bor; belum ada data awal).
+    keywords: [sumur bor, edit]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_edit, table: sumur_bor, id_field: id, geom_field: geom, editable: true, crs: *crs}
+  logger-tmat:
+    type: collection
+    title: Logger AP-TMAT
+    description: Lokasi logger tinggi muka air tanah (belum ada data awal).
+    keywords: [TMAT, edit]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_edit, table: logger_tmat, id_field: id, geom_field: geom, editable: true, crs: *crs}
+  posko-karhutla:
+    type: collection
+    title: Posko karhutla
+    description: Posko pengendalian kebakaran hutan dan lahan (belum ada data awal).
+    keywords: [posko, edit]
+    links: *link
+    extents: *ext
+    providers:
+      - {type: feature, name: PostgreSQL, data: *db_edit, table: posko_karhutla, id_field: id, geom_field: geom, editable: true, crs: *crs}
+
+  # ============================================================ OGC API - Processes
+  ringkasan-dashboard:
+    type: process
+    processor: {name: gambut_processes.RingkasanDashboard}
+  validasi-khg:
+    type: process
+    processor: {name: gambut_processes.ValidasiKHG}
+  saran-lokasi-pompa:
+    type: process
+    processor: {name: gambut_processes.SaranLokasiPompa}
+  ajukan-review:
+    type: process
+    processor: {name: gambut_processes.AjukanReview}
+  putuskan-review:
+    type: process
+    processor: {name: gambut_processes.PutuskanReview}
+  refresh-statistik:
+    type: process
+    processor: {name: gambut_processes.RefreshStatistik}
