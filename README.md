@@ -40,6 +40,16 @@ Total DB ±7 GB. Semua geometri EPSG:4326.
 | 6 | [**Panduan Demo**](docs/06_PANDUAN_DEMO.md) | **presenter** | Alur demo 15 menit, link siap klik, jawaban pertanyaan umum |
 | 7 | [Deploy otomatis](deploy/README.md) | DevOps | Hetzner: `provision.sh` + `deploy.sh` |
 
+### English documents (PDF)
+| Document | Pages | Content |
+|---|---:|---|
+| [Domain-Driven Design](docs/pdf/01_DDD.pdf) | 18 | Ubiquitous language, subdomains, bounded contexts and context map, aggregates, domain events, business rules |
+| [Entity Relationship Diagram](docs/pdf/02_ERD.pdf) | 18 | ER diagrams per bounded context, cardinalities, code lists, public read model |
+| [Database Schema](docs/pdf/03_DATABASE_SCHEMA.pdf) | 48 | Every table, column, constraint, index, trigger, function and role (generated from the live catalogue) |
+| [System Architecture Document](docs/pdf/04_SAD.pdf) | 19 | Context, containers, pipeline, runtime sequences, deployment, security, measured performance, decisions, risks, cost |
+
+The PDFs are built from `docs/en/*.md` with `python3 docs/en/build.py` (pandoc, Google Chrome, poppler). ERD and Database Schema are generated from `docs/en/schema_snapshot.json`, which `docs/en/introspect.sql` produces from the database.
+
 ## Arsitektur singkat
 ```mermaid
 flowchart LR
@@ -88,3 +98,6 @@ scripts/  build_gpkg.py (sekat), build_hotspot.py (hotspot)
 - **Rumus skor prioritas & bobot saran lokasi pompa masih sementara** (ditandai `penyederhanaan:` di SQL). Perlu disesuaikan dengan SOP Dit. PPEG.
 - **Batasan pygeoapi 0.24**: PUT wajib mengirim `id` + geometri lengkap; PATCH tidak didukung.
 - **Kredensial**: file `.env` dan `KREDENSIAL*.md` di-gitignore. Password default `gambut_dev` di `docker-compose.yml` hanya untuk DB lokal; server produksi memakai password acak.
+
+## Lisensi
+[MIT](LICENSE) © 2026 Fairuz Akmal Pradana

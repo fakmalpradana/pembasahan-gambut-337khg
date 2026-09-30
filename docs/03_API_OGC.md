@@ -198,12 +198,20 @@ curl -u USER:PASS -X POST -H "Content-Type: application/json" -d '{"inputs":{}}'
 ## 7. Klien
 | Klien | Cara pakai |
 |---|---|
-| **QGIS** (≥ 3.16) | *Data Source Manager → WFS / OGC API - Features → New* → URL `http://localhost:8080`, versi *OGC API - Features*. Untuk edit, isi Basic Auth. Tiles: *Vector Tile → New → Generic*, URL `.../tiles/WebMercatorQuad/{z}/{y}/{x}?f=mvt` |
+| **QGIS** (≥ 3.28) | Lihat §7a di bawah (termasuk login untuk edit) |
 | **GDAL/OGR** | `ogrinfo OAPIF:http://localhost:8080` · `ogr2ogr -f GPKG sekat.gpkg OAPIF:http://localhost:8080/collections/sekat -spat 102.3 0.9 102.4 1.0 -where "status='existing'"` (sudah diuji: 61 fitur) |
 | **ArcGIS Pro** (≥ 2.8) | *Insert → Connections → Server → New OGC API Server* |
 | **Python** | `requests` / `owslib.ogcapi.features.Features('http://localhost:8080')` / `geopandas.read_file('http://localhost:8080/collections/khg/items?f=json&limit=5000')` |
 | **JavaScript** | MapLibre GL / OpenLayers: sumber `vector` dengan URL tile MVT di atas, atau GeoJSON dari `/items?f=json` |
 | **Browser** | Setiap endpoint punya tampilan HTML dengan `?f=html` |
+
+### 7a. QGIS dengan kredensial
+1. **Simpan kredensial.** Buka *Settings → Options → Authentication* → **+** → tipe **Basic authentication**. Isi Name `Gambut API` serta username/password API. QGIS menyimpannya terenkripsi dengan *master password*.
+2. **Buat koneksi.** Buka *Layer → Data Source Manager → WFS / OGC API - Features → New*. Isi URL layanan (misalnya `https://5-223-68-87.sslip.io`), lalu pada *Authentication* pilih `Gambut API` → *Detect* / versi **OGC API - Features** → *Connect*.
+3. **Tambah layer.** Centang *Only request features overlapping the view extent* untuk layer besar.
+4. **Edit.** Koleksi `sekat-edit`, `kanal`, `pompa`, `pintu-air`, `sungai`, `sumur-bor`, `logger-tmat`, dan `posko-karhutla` bisa diedit lewat *Toggle Editing* → *Save*. Membaca tidak butuh login.
+   > Editing OAPIF di aplikasi QGIS belum diuji langsung (POST/PUT/DELETE sudah terbukti dengan `curl`). Kalau Save gagal di versi QGIS Anda, gunakan koneksi PostGIS lewat SSH tunnel.
+5. **Vector tiles** untuk layer besar: *Vector Tile → New → Generic*, URL `…/collections/kanal/tiles/WebMercatorQuad/{z}/{y}/{x}?f=mvt`, zoom 9–17 (tanpa login).
 
 ## 8. Kinerja & batasan (hasil uji lokal)
 | Kasus | Waktu |
